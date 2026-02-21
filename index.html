@@ -126,6 +126,63 @@
 
   .hidden { display: none !important; }
 
+  /* ── Add Shop Form ── */
+  #add-shop-toggle {
+    margin-top: 10px; width: 100%; padding: 8px 12px;
+    background: #e94560; border: none; border-radius: 4px;
+    color: white; font-size: 12px; font-weight: 600;
+    cursor: pointer; transition: background 0.2s;
+  }
+  #add-shop-toggle:hover { background: #c73650; }
+
+  #add-shop-form {
+    display: none; margin-top: 10px; padding: 12px;
+    background: #16213e; border: 1px solid #333;
+    border-radius: 6px;
+  }
+  #add-shop-form.open { display: block; }
+  #add-shop-form h4 { color: #e94560; font-size: 13px; margin-bottom: 10px; }
+
+  #add-shop-form label {
+    display: block; font-size: 11px; color: #aaa;
+    margin-bottom: 3px; margin-top: 8px;
+  }
+  #add-shop-form label:first-of-type { margin-top: 0; }
+
+  #add-shop-form input, #add-shop-form select {
+    width: 100%; padding: 6px 8px; background: #2a2a4a;
+    border: 1px solid #444; border-radius: 4px;
+    color: #ddd; font-size: 12px; outline: none;
+  }
+  #add-shop-form input:focus, #add-shop-form select:focus {
+    border-color: #e94560;
+  }
+
+  #add-shop-form .form-row {
+    display: flex; gap: 8px;
+  }
+  #add-shop-form .form-row > div { flex: 1; }
+
+  #add-shop-submit {
+    margin-top: 12px; width: 100%; padding: 8px;
+    background: #4A9BD9; border: none; border-radius: 4px;
+    color: white; font-size: 12px; font-weight: 600;
+    cursor: pointer; transition: background 0.2s;
+  }
+  #add-shop-submit:hover { background: #3a8bc9; }
+
+  #add-shop-msg {
+    font-size: 11px; margin-top: 6px; color: #4caf50;
+    display: none;
+  }
+
+  .shop-item .delete-btn {
+    background: none; border: none; color: #666;
+    cursor: pointer; font-size: 14px; padding: 0 2px;
+    transition: color 0.15s; flex-shrink: 0;
+  }
+  .shop-item .delete-btn:hover { color: #e94560; }
+
   @media (max-width: 768px) {
     body { flex-direction: column; }
     #sidebar { width: 100%; min-width: 100%; height: 40vh; }
@@ -152,6 +209,30 @@
     </div>
     <div id="progress-bar"><div id="progress-fill"></div></div>
     <div id="progress-text"></div>
+    <button id="add-shop-toggle">+ Add a Shop</button>
+    <div id="add-shop-form">
+      <h4>Add New Coffee Shop</h4>
+      <label>Shop Name</label>
+      <input type="text" id="form-name" placeholder="e.g. Blue Bottle" />
+      <div class="form-row">
+        <div>
+          <label>City</label>
+          <input type="text" id="form-city" placeholder="e.g. San Francisco" />
+        </div>
+        <div>
+          <label>Region</label>
+          <input type="text" id="form-region" placeholder="e.g. CA, USA" />
+        </div>
+      </div>
+      <label>Rating</label>
+      <select id="form-rating">
+        <option value="0">Good</option>
+        <option value="1">Recommended</option>
+        <option value="2">Can't Miss</option>
+      </select>
+      <button id="add-shop-submit">Add to Map</button>
+      <div id="add-shop-msg">Shop added!</div>
+    </div>
   </div>
   <div id="shop-list"></div>
 </div>
@@ -401,6 +482,7 @@ const cityCoords = {
 
 // ─── Helpers ───────────────────────────────────────────────────────
 const CACHE_KEY = "jackson-coffee-map-geocache";
+const CUSTOM_SHOPS_KEY = "jackson-coffee-map-custom";
 
 function loadCache() {
   try { return JSON.parse(localStorage.getItem(CACHE_KEY)) || {}; }
@@ -408,6 +490,14 @@ function loadCache() {
 }
 function saveCache(cache) {
   localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
+}
+
+function loadCustomShops() {
+  try { return JSON.parse(localStorage.getItem(CUSTOM_SHOPS_KEY)) || []; }
+  catch { return []; }
+}
+function saveCustomShops(list) {
+  localStorage.setItem(CUSTOM_SHOPS_KEY, JSON.stringify(list));
 }
 
 function getCacheKey(shop) {
@@ -450,6 +540,34 @@ function getGoogleMapsLink(shop) {
   return `https://www.google.com/maps/search/?api=1&query=${q}`;
 }
 
+function createMarkerIcon(shop) {
+  const rClass = getRatingClass(shop.rating);
+  const size = getMarkerSize(shop.rating);
+  return L.divIcon({
+    className: `custom-marker marker-${rClass}`,
+    iconSize: [size * 2, size * 2],
+    iconAnchor: [size, size],
+    popupAnchor: [0, -size]
+  });
+}
+
+function createPopup(shop) {
+  return `
+    <div class="popup-content">
+      <h3>${shop.name}</h3>
+      <div class="popup-city">${shop.city}, ${shop.region}</div>
+      <div class="popup-rating">${getRatingStars(shop.rating)} ${getRatingLabel(shop.rating)}</div>
+      <div class="popup-links">
+        <a href="${getGoogleMapsLink(shop)}" target="_blank" rel="noopener">Open in Google Maps</a>
+      </div>
+    </div>
+  `;
+}
+
+// ─── Merge built-in + custom shops ─────────────────────────────────
+const customShops = loadCustomShops();
+const allShops = [...shops, ...customShops];
+
 // ─── Initialize Map ────────────────────────────────────────────────
 const map = L.map('map', { zoomControl: true }).setView([38, -30], 3);
 
@@ -482,53 +600,28 @@ const shopMarkers = [];
 
 // Group shops by city for offset calculation
 const cityGroups = {};
-shops.forEach(shop => {
+allShops.forEach(shop => {
   const key = shop.city;
   if (!cityGroups[key]) cityGroups[key] = [];
   cityGroups[key].push(shop);
 });
 
-shops.forEach((shop, idx) => {
+function getShopLatLng(shop) {
   const ck = getCacheKey(shop);
+  if (cache[ck]) return [cache[ck].lat, cache[ck].lng];
   const cityGroup = cityGroups[shop.city];
   const indexInCity = cityGroup.indexOf(shop);
   const totalInCity = cityGroup.length;
   const offset = getSpiralOffset(indexInCity, totalInCity);
   const cityCenter = cityCoords[shop.city] || [40, -74];
+  return [cityCenter[0] + offset[0], cityCenter[1] + offset[1]];
+}
 
-  let lat, lng;
-  if (cache[ck]) {
-    lat = cache[ck].lat;
-    lng = cache[ck].lng;
-  } else {
-    lat = cityCenter[0] + offset[0];
-    lng = cityCenter[1] + offset[1];
-  }
-
-  const rClass = getRatingClass(shop.rating);
-  const size = getMarkerSize(shop.rating);
-
-  const icon = L.divIcon({
-    className: `custom-marker marker-${rClass}`,
-    iconSize: [size * 2, size * 2],
-    iconAnchor: [size, size],
-    popupAnchor: [0, -size]
-  });
-
+allShops.forEach((shop, idx) => {
+  const [lat, lng] = getShopLatLng(shop);
+  const icon = createMarkerIcon(shop);
   const marker = L.marker([lat, lng], { icon });
-
-  const popupHtml = `
-    <div class="popup-content">
-      <h3>${shop.name}</h3>
-      <div class="popup-city">${shop.city}, ${shop.region}</div>
-      <div class="popup-rating">${getRatingStars(shop.rating)} ${getRatingLabel(shop.rating)}</div>
-      <div class="popup-links">
-        <a href="${getGoogleMapsLink(shop)}" target="_blank" rel="noopener">Open in Google Maps</a>
-      </div>
-    </div>
-  `;
-  marker.bindPopup(popupHtml);
-
+  marker.bindPopup(createPopup(shop));
   markers.addLayer(marker);
   shopMarkers.push({ shop, marker, index: idx });
 });
@@ -536,77 +629,225 @@ shops.forEach((shop, idx) => {
 map.addLayer(markers);
 
 // Fit bounds
-const allLatLngs = shopMarkers.map(sm => sm.marker.getLatLng());
-if (allLatLngs.length) {
-  map.fitBounds(L.latLngBounds(allLatLngs).pad(0.1));
+function fitAll() {
+  const allLatLngs = shopMarkers.map(sm => sm.marker.getLatLng());
+  if (allLatLngs.length) map.fitBounds(L.latLngBounds(allLatLngs).pad(0.1));
 }
+fitAll();
 
 // ─── Sidebar ───────────────────────────────────────────────────────
 const shopListEl = document.getElementById('shop-list');
 const shopCountEl = document.getElementById('shop-count');
-shopCountEl.textContent = `${shops.length} coffee shops across ${Object.keys(cityGroups).length} cities`;
 
-// Sort cities: group by region, then alphabetically
-const cityOrder = Object.keys(cityGroups).sort((a, b) => {
-  const ra = cityGroups[a][0].region;
-  const rb = cityGroups[b][0].region;
-  if (ra !== rb) return ra.localeCompare(rb);
-  return a.localeCompare(b);
-});
+function renderSidebar() {
+  shopListEl.innerHTML = '';
+  shopCountEl.textContent = `${allShops.length} coffee shops across ${Object.keys(cityGroups).length} cities`;
 
-cityOrder.forEach(cityName => {
-  const cityShops = cityGroups[cityName];
-  const region = cityShops[0].region;
+  const cityOrder = Object.keys(cityGroups).sort((a, b) => {
+    const ra = cityGroups[a][0].region;
+    const rb = cityGroups[b][0].region;
+    if (ra !== rb) return ra.localeCompare(rb);
+    return a.localeCompare(b);
+  });
 
-  const groupEl = document.createElement('div');
-  groupEl.className = 'city-group';
-  groupEl.dataset.city = cityName.toLowerCase();
+  cityOrder.forEach(cityName => {
+    const cityShops = cityGroups[cityName];
+    const region = cityShops[0].region;
 
-  const headerEl = document.createElement('div');
-  headerEl.className = 'city-header';
-  headerEl.innerHTML = `
-    <h3>${cityName}, ${region}</h3>
-    <div style="display:flex;align-items:center;gap:8px;">
-      <span class="count">${cityShops.length}</span>
-      <span class="arrow">&#9654;</span>
-    </div>
-  `;
+    const groupEl = document.createElement('div');
+    groupEl.className = 'city-group';
+    groupEl.dataset.city = cityName.toLowerCase();
 
-  const shopsEl = document.createElement('div');
-  shopsEl.className = 'city-shops';
-
-  // Sort shops within city: highest rating first
-  const sorted = [...cityShops].sort((a, b) => b.rating - a.rating);
-  sorted.forEach(shop => {
-    const sm = shopMarkers.find(s => s.shop === shop);
-    const item = document.createElement('div');
-    item.className = 'shop-item';
-    item.dataset.name = shop.name.toLowerCase();
-    item.innerHTML = `
-      <div class="shop-dot" style="background:${shop.rating === 2 ? '#FFD700' : shop.rating === 1 ? '#FF8C00' : '#4A9BD9'}"></div>
-      <span class="shop-name">${shop.name}</span>
-      <span class="stars">${getRatingStars(shop.rating)}</span>
+    const headerEl = document.createElement('div');
+    headerEl.className = 'city-header';
+    headerEl.innerHTML = `
+      <h3>${cityName}, ${region}</h3>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span class="count">${cityShops.length}</span>
+        <span class="arrow">&#9654;</span>
+      </div>
     `;
-    item.addEventListener('click', () => {
-      const ll = sm.marker.getLatLng();
-      map.setView(ll, 15);
-      // Uncluster and open popup
-      markers.zoomToShowLayer(sm.marker, () => {
-        sm.marker.openPopup();
+
+    const shopsEl = document.createElement('div');
+    shopsEl.className = 'city-shops';
+
+    const sorted = [...cityShops].sort((a, b) => b.rating - a.rating);
+    sorted.forEach(shop => {
+      const sm = shopMarkers.find(s => s.shop === shop);
+      const isCustom = shop.custom === true;
+      const item = document.createElement('div');
+      item.className = 'shop-item';
+      item.dataset.name = shop.name.toLowerCase();
+      item.innerHTML = `
+        <div class="shop-dot" style="background:${shop.rating === 2 ? '#FFD700' : shop.rating === 1 ? '#FF8C00' : '#4A9BD9'}"></div>
+        <span class="shop-name">${shop.name}</span>
+        <span class="stars">${getRatingStars(shop.rating)}</span>
+        ${isCustom ? '<button class="delete-btn" title="Remove this shop">&times;</button>' : ''}
+      `;
+
+      // Click shop name to fly to it
+      item.querySelector('.shop-name').addEventListener('click', () => {
+        const ll = sm.marker.getLatLng();
+        map.setView(ll, 15);
+        markers.zoomToShowLayer(sm.marker, () => {
+          sm.marker.openPopup();
+        });
       });
+
+      // Delete button for custom shops
+      if (isCustom) {
+        item.querySelector('.delete-btn').addEventListener('click', (e) => {
+          e.stopPropagation();
+          deleteCustomShop(shop);
+        });
+      }
+
+      shopsEl.appendChild(item);
     });
-    shopsEl.appendChild(item);
-  });
 
-  headerEl.addEventListener('click', () => {
-    headerEl.classList.toggle('open');
-    shopsEl.classList.toggle('open');
-  });
+    headerEl.addEventListener('click', () => {
+      headerEl.classList.toggle('open');
+      shopsEl.classList.toggle('open');
+    });
 
-  groupEl.appendChild(headerEl);
-  groupEl.appendChild(shopsEl);
-  shopListEl.appendChild(groupEl);
+    groupEl.appendChild(headerEl);
+    groupEl.appendChild(shopsEl);
+    shopListEl.appendChild(groupEl);
+  });
+}
+
+renderSidebar();
+
+// ─── Add Shop ──────────────────────────────────────────────────────
+const addToggle = document.getElementById('add-shop-toggle');
+const addForm = document.getElementById('add-shop-form');
+const addSubmit = document.getElementById('add-shop-submit');
+const addMsg = document.getElementById('add-shop-msg');
+
+addToggle.addEventListener('click', () => {
+  addForm.classList.toggle('open');
+  addToggle.textContent = addForm.classList.contains('open') ? '- Cancel' : '+ Add a Shop';
 });
+
+addSubmit.addEventListener('click', async () => {
+  const name = document.getElementById('form-name').value.trim();
+  const city = document.getElementById('form-city').value.trim();
+  const region = document.getElementById('form-region').value.trim();
+  const rating = parseInt(document.getElementById('form-rating').value);
+
+  if (!name || !city || !region) {
+    addMsg.textContent = 'Please fill in all fields.';
+    addMsg.style.color = '#e94560';
+    addMsg.style.display = 'block';
+    setTimeout(() => addMsg.style.display = 'none', 3000);
+    return;
+  }
+
+  const newShop = { name, city, region, rating, custom: true };
+
+  // Add to data structures
+  allShops.push(newShop);
+  if (!cityGroups[city]) cityGroups[city] = [];
+  cityGroups[city].push(newShop);
+
+  // Try to geocode immediately
+  let lat, lng;
+  const query = `${name} coffee, ${city}, ${region}`;
+  try {
+    addSubmit.textContent = 'Locating...';
+    addSubmit.disabled = true;
+    const resp = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`,
+      { headers: { 'User-Agent': 'JacksonCoffeeMap/1.0' } }
+    );
+    const data = await resp.json();
+    if (data && data.length > 0) {
+      lat = parseFloat(data[0].lat);
+      lng = parseFloat(data[0].lon);
+      const geoCache = loadCache();
+      geoCache[getCacheKey(newShop)] = { lat, lng };
+      saveCache(geoCache);
+    }
+  } catch (e) {
+    console.warn('Geocoding failed for new shop', e);
+  }
+
+  // Fallback to city offset if geocoding failed
+  if (lat === undefined) {
+    const [fallbackLat, fallbackLng] = getShopLatLng(newShop);
+    lat = fallbackLat;
+    lng = fallbackLng;
+  }
+
+  // Create marker
+  const icon = createMarkerIcon(newShop);
+  const marker = L.marker([lat, lng], { icon });
+  marker.bindPopup(createPopup(newShop));
+  markers.addLayer(marker);
+  shopMarkers.push({ shop: newShop, marker, index: allShops.length - 1 });
+
+  // Save to localStorage
+  const custom = loadCustomShops();
+  custom.push(newShop);
+  saveCustomShops(custom);
+
+  // Re-render sidebar
+  renderSidebar();
+
+  // Reset form
+  document.getElementById('form-name').value = '';
+  document.getElementById('form-city').value = '';
+  document.getElementById('form-region').value = '';
+  document.getElementById('form-rating').value = '0';
+  addSubmit.textContent = 'Add to Map';
+  addSubmit.disabled = false;
+
+  addMsg.textContent = `${name} added!`;
+  addMsg.style.color = '#4caf50';
+  addMsg.style.display = 'block';
+  setTimeout(() => addMsg.style.display = 'none', 3000);
+
+  // Fly to the new shop
+  map.setView([lat, lng], 13);
+  setTimeout(() => {
+    markers.zoomToShowLayer(marker, () => marker.openPopup());
+  }, 500);
+});
+
+// ─── Delete Custom Shop ────────────────────────────────────────────
+function deleteCustomShop(shop) {
+  // Remove from allShops
+  const idx = allShops.indexOf(shop);
+  if (idx > -1) allShops.splice(idx, 1);
+
+  // Remove from cityGroups
+  const cg = cityGroups[shop.city];
+  if (cg) {
+    const ci = cg.indexOf(shop);
+    if (ci > -1) cg.splice(ci, 1);
+    if (cg.length === 0) delete cityGroups[shop.city];
+  }
+
+  // Remove marker
+  const smIdx = shopMarkers.findIndex(s => s.shop === shop);
+  if (smIdx > -1) {
+    markers.removeLayer(shopMarkers[smIdx].marker);
+    shopMarkers.splice(smIdx, 1);
+  }
+
+  // Remove from localStorage
+  const custom = loadCustomShops().filter(s =>
+    !(s.name === shop.name && s.city === shop.city && s.region === shop.region)
+  );
+  saveCustomShops(custom);
+
+  // Remove from geo cache
+  const geoCache = loadCache();
+  delete geoCache[getCacheKey(shop)];
+  saveCache(geoCache);
+
+  renderSidebar();
+}
 
 // ─── Search ────────────────────────────────────────────────────────
 const searchBox = document.getElementById('search-box');
@@ -640,7 +881,6 @@ searchBox.addEventListener('input', () => {
     }
   });
 
-  // Also highlight matching markers
   if (q) {
     const matching = shopMarkers.filter(sm =>
       sm.shop.name.toLowerCase().includes(q) ||
@@ -671,8 +911,8 @@ btnGeocode.addEventListener('click', async () => {
   progressBar.style.display = 'block';
   progressText.style.display = 'block';
 
-  const cache = loadCache();
-  const toGeocode = shopMarkers.filter(sm => !cache[getCacheKey(sm.shop)]);
+  const geoCache = loadCache();
+  const toGeocode = shopMarkers.filter(sm => !geoCache[getCacheKey(sm.shop)]);
   const total = toGeocode.length;
 
   if (total === 0) {
@@ -701,7 +941,7 @@ btnGeocode.addEventListener('click', async () => {
         const lat = parseFloat(data[0].lat);
         const lng = parseFloat(data[0].lon);
         sm.marker.setLatLng([lat, lng]);
-        cache[getCacheKey(shop)] = { lat, lng };
+        geoCache[getCacheKey(shop)] = { lat, lng };
       }
     } catch (e) {
       console.warn(`Failed to geocode: ${query}`, e);
@@ -712,11 +952,10 @@ btnGeocode.addEventListener('click', async () => {
     progressFill.style.width = pct + '%';
     progressText.textContent = `${done}/${total} - ${shop.name}`;
 
-    // Respect Nominatim rate limit: 1 req/sec
     await new Promise(r => setTimeout(r, 1100));
   }
 
-  saveCache(cache);
+  saveCache(geoCache);
   markers.clearLayers();
   shopMarkers.forEach(sm => markers.addLayer(sm.marker));
 
@@ -736,10 +975,7 @@ btnClearCache.addEventListener('click', () => {
   location.reload();
 });
 
-btnFit.addEventListener('click', () => {
-  const all = shopMarkers.map(sm => sm.marker.getLatLng());
-  if (all.length) map.fitBounds(L.latLngBounds(all).pad(0.1));
-});
+btnFit.addEventListener('click', fitAll);
 </script>
 </body>
 </html>
