@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jackson's Coffee Map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; height: 100vh; }
+
+  #sidebar {
+    width: 340px; min-width: 340px; height: 100vh; overflow-y: auto;
+    background: #1a1a2e; color: #e0e0e0; padding: 0;
+    scrollbar-width: thin; scrollbar-color: #444 #1a1a2e;
+  }
+  #sidebar::-webkit-scrollbar { width: 6px; }
+  #sidebar::-webkit-scrollbar-track { background: #1a1a2e; }
+  #sidebar::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+
+  #sidebar-header {
+    position: sticky; top: 0; z-index: 10;
+    background: linear-gradient(135deg, #16213e, #0f3460);
+    padding: 18px 16px 14px; border-bottom: 2px solid #e94560;
+  }
+  #sidebar-header h1 { font-size: 20px; color: #fff; margin-bottom: 4px; }
+  #sidebar-header p { font-size: 12px; color: #aaa; }
+
+  .legend {
+    display: flex; gap: 12px; margin-top: 10px; flex-wrap: wrap;
+  }
+  .legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; }
+  .legend-dot {
+    width: 12px; height: 12px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.3);
+  }
+  .dot-cantmiss { background: #FFD700; border-color: #DAA520; }
+  .dot-recommended { background: #FF8C00; border-color: #D2691E; }
+  .dot-good { background: #4A9BD9; border-color: #2E6DA4; }
+
+  .city-group { border-bottom: 1px solid #2a2a4a; }
+  .city-header {
+    padding: 10px 16px; cursor: pointer; display: flex;
+    justify-content: space-between; align-items: center;
+    background: #16213e; transition: background 0.2s;
+    position: sticky; top: 0;
+  }
+  .city-header:hover { background: #1a2744; }
+  .city-header h3 { font-size: 14px; color: #e94560; }
+  .city-header .count {
+    font-size: 11px; background: #2a2a4a; padding: 2px 8px;
+    border-radius: 10px; color: #aaa;
+  }
+  .city-header .arrow { transition: transform 0.2s; font-size: 10px; color: #666; }
+  .city-header.open .arrow { transform: rotate(90deg); }
+
+  .city-shops { display: none; }
+  .city-shops.open { display: block; }
+
+  .shop-item {
+    padding: 8px 16px 8px 24px; cursor: pointer;
+    display: flex; align-items: center; gap: 8px;
+    transition: background 0.15s; font-size: 13px;
+  }
+  .shop-item:hover { background: #222244; }
+  .shop-item .shop-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  }
+  .shop-item .shop-name { flex: 1; }
+  .shop-item .stars { color: #FFD700; font-size: 11px; flex-shrink: 0; }
+
+  #map { flex: 1; height: 100vh; }
+
+  .controls {
+    display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap;
+  }
+  .btn {
+    padding: 6px 12px; border: 1px solid #444; border-radius: 4px;
+    background: #2a2a4a; color: #ddd; font-size: 11px;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .btn:hover { background: #3a3a5a; border-color: #e94560; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  #progress-bar {
+    display: none; margin-top: 8px; background: #2a2a4a;
+    border-radius: 4px; overflow: hidden; height: 4px;
+  }
+  #progress-fill {
+    height: 100%; background: #e94560; width: 0%;
+    transition: width 0.3s;
+  }
+  #progress-text { font-size: 10px; color: #888; margin-top: 4px; display: none; }
+
+  #search-box {
+    margin-top: 10px; width: 100%; padding: 8px 10px;
+    background: #2a2a4a; border: 1px solid #444; border-radius: 4px;
+    color: #ddd; font-size: 13px; outline: none;
+  }
+  #search-box:focus { border-color: #e94560; }
+  #search-box::placeholder { color: #666; }
+
+  .custom-marker {
+    border-radius: 50%; border: 2px solid white;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+    transition: transform 0.15s;
+  }
+  .custom-marker:hover { transform: scale(1.3); }
+  .marker-cantmiss { background: #FFD700; }
+  .marker-recommended { background: #FF8C00; }
+  .marker-good { background: #4A9BD9; }
+
+  .leaflet-popup-content-wrapper {
+    border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  }
+  .popup-content h3 { margin: 0 0 4px; font-size: 15px; color: #1a1a2e; }
+  .popup-content .popup-city { font-size: 12px; color: #666; margin-bottom: 6px; }
+  .popup-content .popup-rating { font-size: 12px; margin-bottom: 8px; }
+  .popup-content .popup-links a {
+    display: inline-block; padding: 4px 10px; background: #e94560;
+    color: white; text-decoration: none; border-radius: 4px;
+    font-size: 11px; transition: background 0.2s;
+  }
+  .popup-content .popup-links a:hover { background: #c73650; }
+
+  .hidden { display: none !important; }
+
+  @media (max-width: 768px) {
+    body { flex-direction: column; }
+    #sidebar { width: 100%; min-width: 100%; height: 40vh; }
+    #map { height: 60vh; }
+  }
+</style>
+</head>
+<body>
+
+<div id="sidebar">
+  <div id="sidebar-header">
+    <h1>Jackson's Coffee Map</h1>
+    <p id="shop-count"></p>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot dot-cantmiss"></div> Can't Miss</div>
+      <div class="legend-item"><div class="legend-dot dot-recommended"></div> Recommended</div>
+      <div class="legend-item"><div class="legend-dot dot-good"></div> Good</div>
+    </div>
+    <input type="text" id="search-box" placeholder="Search shops or cities..." />
+    <div class="controls">
+      <button class="btn" id="btn-geocode" title="Improve pin accuracy using OpenStreetMap">Refine Locations</button>
+      <button class="btn" id="btn-clear-cache" title="Clear cached locations">Clear Cache</button>
+      <button class="btn" id="btn-fit" title="Fit all markers in view">Show All</button>
+    </div>
+    <div id="progress-bar"><div id="progress-fill"></div></div>
+    <div id="progress-text"></div>
+  </div>
+  <div id="shop-list"></div>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script>
+// ─── Coffee Shop Data ──────────────────────────────────────────────
+const shops = [
+  // ── London, UK ──
+  { name: "Prufrock", city: "London", region: "UK", rating: 2 },
+  { name: "Origin Coffee Roasters", city: "London", region: "UK", rating: 0 },
+  { name: "Kaffeine", city: "London", region: "UK", rating: 0 },
+  { name: "The Penny Drop", city: "London", region: "UK", rating: 0 },
+  { name: "Curators Coffee Studio", city: "London", region: "UK", rating: 0 },
+  { name: "Climpson & Sons", city: "London", region: "UK", rating: 0 },
+  { name: "Watchhouse", city: "London", region: "UK", rating: 0 },
+  { name: "Qima Cafe", city: "London", region: "UK", rating: 2 },
+  { name: "Shot", city: "London", region: "UK", rating: 0 },
+  { name: "Moonshot", city: "London", region: "UK", rating: 0 },
+  { name: "Nagare Coffee", city: "London", region: "UK", rating: 0 },
+  { name: "Sofu", city: "London", region: "UK", rating: 0 },
+  { name: "Uchi Bane", city: "London", region: "UK", rating: 0 },
+
+  // ── Edinburgh, UK ──
+  { name: "Beatnik", city: "Edinburgh", region: "UK", rating: 0 },
+
+  // ── Bristol, UK ──
+  { name: "Sweven Coffee", city: "Bristol", region: "UK", rating: 0 },
+  { name: "Triple Co Roast", city: "Bristol", region: "UK", rating: 0 },
+  { name: "Origin", city: "Bristol", region: "UK", rating: 0 },
+
+  // ── Bath, UK ──
+  { name: "Colonna & Smalls", city: "Bath", region: "UK", rating: 2 },
+
+  // ── Bury St Edmunds, UK ──
+  { name: "Wrights", city: "Bury St Edmunds", region: "UK", rating: 0 },
+  { name: "Alema", city: "Bury St Edmunds", region: "UK", rating: 0 },
+  { name: "Butterworth Roastery", city: "Bury St Edmunds", region: "UK", rating: 0 },
+  { name: "Midgar", city: "Bury St Edmunds", region: "UK", rating: 0 },
+
+  // ── Clare, UK ──
+  { name: "Smalltown", city: "Clare, Suffolk", region: "UK", rating: 0 },
+
+  // ── Newmarket, UK ──
+  { name: "Victor Victoria", city: "Newmarket", region: "UK", rating: 0 },
+  { name: "Cortado", city: "Newmarket", region: "UK", rating: 0 },
+
+  // ── Cambridge, UK ──
+  { name: "Bould Brothers", city: "Cambridge", region: "UK", rating: 0 },
+  { name: "Kerb Kollective", city: "Cambridge", region: "UK", rating: 0 },
+  { name: "Hot Numbers", city: "Cambridge", region: "UK", rating: 0 },
+  { name: "The Locker", city: "Cambridge", region: "UK", rating: 0 },
+  { name: "The Coffee Temple", city: "Cambridge", region: "UK", rating: 0 },
+  { name: "Fitzbillies", city: "Cambridge", region: "UK", rating: 0 },
+  { name: "Harvey's", city: "Cambridge", region: "UK", rating: 0 },
+  { name: "Evolve", city: "Cambridge", region: "UK", rating: 0 },
+
+  // ── Cardiff, UK ──
+  { name: "Lufkin", city: "Cardiff", region: "UK", rating: 0 },
+  { name: "Corner Coffee", city: "Cardiff", region: "UK", rating: 0 },
+  { name: "Hardlines", city: "Cardiff", region: "UK", rating: 0 },
+
+  // ── Norfolk, UK ──
+  { name: "White Horse Holme", city: "Holme-next-the-Sea", region: "Norfolk, UK", rating: 0 },
+
+  // ── Dublin, Ireland ──
+  { name: "Sumo", city: "Dublin", region: "Ireland", rating: 0 },
+
+  // ── Paris, France ──
+  { name: "Clove Coffee Shop", city: "Paris", region: "France", rating: 0 },
+
+  // ── New York City, USA ──
+  { name: "Felix Coffee Roasters", city: "New York", region: "NY, USA", rating: 2 },
+  { name: "Blue Bottle", city: "New York", region: "NY, USA", rating: 0 },
+  { name: "Nguyen Coffee Supply", city: "New York", region: "NY, USA", rating: 0 },
+  { name: "Roasting Plant Coffee", city: "New York", region: "NY, USA", rating: 0 },
+  { name: "Kinship", city: "New York", region: "NY, USA", rating: 0 },
+  { name: "Maman", city: "New York", region: "NY, USA", rating: 0 },
+  { name: "Lacombe", city: "New York", region: "NY, USA", rating: 1 },
+  { name: "Coffee Project", city: "New York", region: "NY, USA", rating: 2 },
+  { name: "Partners", city: "New York", region: "NY, USA", rating: 1 },
+  { name: "Suited", city: "New York", region: "NY, USA", rating: 2 },
+  { name: "Parlor", city: "New York", region: "NY, USA", rating: 1 },
+  { name: "East One", city: "New York", region: "NY, USA", rating: 0 },
+  { name: "Oval", city: "New York", region: "NY, USA", rating: 0 },
+  { name: "% Arabica", city: "New York", region: "NY, USA", rating: 2 },
+  { name: "Black Fox Coffee", city: "New York", region: "NY, USA", rating: 0 },
+
+  // ── Seattle, USA ──
+  { name: "Stumptown", city: "Seattle", region: "WA, USA", rating: 0 },
+  { name: "Kent Bakke Museum", city: "Seattle", region: "WA, USA", rating: 0 },
+
+  // ── Chattanooga, TN, USA ──
+  { name: "Oaks", city: "Chattanooga", region: "TN, USA", rating: 2 },
+  { name: "Burlap", city: "Chattanooga", region: "TN, USA", rating: 1 },
+  { name: "Goodman", city: "Chattanooga", region: "TN, USA", rating: 1 },
+  { name: "Velo", city: "Chattanooga", region: "TN, USA", rating: 0 },
+  { name: "Uncommon", city: "Chattanooga", region: "TN, USA", rating: 0 },
+  { name: "Niedlovs", city: "Chattanooga", region: "TN, USA", rating: 1 },
+
+  // ── Knoxville, TN, USA ──
+  { name: "Honeybee", city: "Knoxville", region: "TN, USA", rating: 0 },
+  { name: "Five & Hoek", city: "Knoxville", region: "TN, USA", rating: 2 },
+  { name: "Partial Coffee", city: "Knoxville", region: "TN, USA", rating: 2 },
+  { name: "KBrew", city: "Knoxville", region: "TN, USA", rating: 0 },
+
+  // ── Düsseldorf, Germany ──
+  { name: "Dritan Alsela", city: "Düsseldorf", region: "Germany", rating: 0 },
+
+  // ── Georgia, USA (various) ──
+  { name: "Gilly Brewing Co.", city: "Georgia", region: "GA, USA", rating: 2 },
+  { name: "Swift & Finch", city: "Georgia", region: "GA, USA", rating: 0 },
+  { name: "Noble & Main Coffee Co.", city: "Georgia", region: "GA, USA", rating: 0 },
+  { name: "333 Peters", city: "Georgia", region: "GA, USA", rating: 0 },
+  { name: "Valor Coffee", city: "Georgia", region: "GA, USA", rating: 2 },
+  { name: "Three Tree", city: "Georgia", region: "GA, USA", rating: 0 },
+
+  // ── Atlanta, GA, USA ──
+  { name: "Academy Coffee", city: "Atlanta", region: "GA, USA", rating: 1 },
+  { name: "Le Bon Nosh", city: "Atlanta", region: "GA, USA", rating: 0 },
+  { name: "Brash", city: "Atlanta", region: "GA, USA", rating: 0 },
+  { name: "Muchacho", city: "Atlanta", region: "GA, USA", rating: 0 },
+  { name: "Bellwood", city: "Atlanta", region: "GA, USA", rating: 1 },
+  { name: "Full Commission", city: "Atlanta", region: "GA, USA", rating: 0 },
+  { name: "Perc", city: "Atlanta", region: "GA, USA", rating: 2 },
+
+  // ── Nashville, TN, USA ──
+  { name: "Americano", city: "Nashville", region: "TN, USA", rating: 0 },
+  { name: "Crema", city: "Nashville", region: "TN, USA", rating: 2 },
+  { name: "Barista Parlor", city: "Nashville", region: "TN, USA", rating: 2 },
+  { name: "The Well House", city: "Nashville", region: "TN, USA", rating: 1 },
+  { name: "Sump", city: "Nashville", region: "TN, USA", rating: 0 },
+  { name: "Moonshot", city: "Nashville", region: "TN, USA", rating: 0 },
+  { name: "Humphrey Street", city: "Nashville", region: "TN, USA", rating: 0 },
+  { name: "Matryoshka Coffee", city: "Nashville", region: "TN, USA", rating: 1 },
+  { name: "8th & Roast", city: "Nashville", region: "TN, USA", rating: 0 },
+  { name: "Retrograde", city: "Nashville", region: "TN, USA", rating: 0 },
+  { name: "Weak", city: "Nashville", region: "TN, USA", rating: 0 },
+  { name: "Floura + Fauna", city: "Nashville", region: "TN, USA", rating: 1 },
+  { name: "Now and Then", city: "Nashville", region: "TN, USA", rating: 1 },
+  { name: "Dose", city: "Nashville", region: "TN, USA", rating: 0 },
+  { name: "Elixir", city: "Nashville", region: "TN, USA", rating: 2 },
+  { name: "Anchorhead", city: "Nashville", region: "TN, USA", rating: 1 },
+
+  // ── Franklin, TN, USA ──
+  { name: "Honest", city: "Franklin", region: "TN, USA", rating: 1 },
+  { name: "Curio Brewing", city: "Franklin", region: "TN, USA", rating: 1 },
+  { name: "High Brow", city: "Franklin", region: "TN, USA", rating: 0 },
+
+  // ── Winchester, TN, USA ──
+  { name: "Holy Grail Coffee Co.", city: "Winchester", region: "TN, USA", rating: 0 },
+
+  // ── Cincinnati, OH, USA ──
+  { name: "Deeper Roots", city: "Cincinnati", region: "OH, USA", rating: 0 },
+  { name: "Carabello", city: "Cincinnati", region: "OH, USA", rating: 0 },
+  { name: "Urbana Coffee", city: "Cincinnati", region: "OH, USA", rating: 0 },
+  { name: "Proud Hound", city: "Cincinnati", region: "OH, USA", rating: 0 },
+
+  // ── Asheville, NC, USA ──
+  { name: "Rowan Coffee", city: "Asheville", region: "NC, USA", rating: 0 },
+  { name: "Pollen", city: "Asheville", region: "NC, USA", rating: 0 },
+
+  // ── Austin, TX, USA ──
+  { name: "Cosmic Coffee Bar", city: "Austin", region: "TX, USA", rating: 0 },
+
+  // ── Rome, Italy ──
+  { name: "Pergamino Coffee", city: "Rome", region: "Italy", rating: 1 },
+  { name: "Faro Caffe Specialty", city: "Rome", region: "Italy", rating: 1 },
+  { name: "Fax Factory", city: "Rome", region: "Italy", rating: 0 },
+  { name: "Roscioli Caffe", city: "Rome", region: "Italy", rating: 0 },
+  { name: "Tram Depot", city: "Rome", region: "Italy", rating: 0 },
+
+  // ── Florence, Italy ──
+  { name: "La Sosta", city: "Florence", region: "Italy", rating: 0 },
+  { name: "Melaleuca", city: "Florence", region: "Italy", rating: 0 },
+  { name: "Accademia", city: "Florence", region: "Italy", rating: 1 },
+  { name: "Ditta Artigianale Carducci", city: "Florence", region: "Italy", rating: 2 },
+
+  // ── Washington DC, USA ──
+  { name: "Cafinva", city: "Washington", region: "DC, USA", rating: 0 },
+  { name: "The Wyndown", city: "Washington", region: "DC, USA", rating: 1 },
+  { name: "Doppiobunny", city: "Washington", region: "DC, USA", rating: 1 },
+  { name: "Grace Street Coffee Roasters", city: "Washington", region: "DC, USA", rating: 0 },
+  { name: "Philz", city: "Washington", region: "DC, USA", rating: 0 },
+
+  // ── New Orleans, LA, USA ──
+  { name: "Revelator", city: "New Orleans", region: "LA, USA", rating: 1 },
+  { name: "Mammoth Espresso", city: "New Orleans", region: "LA, USA", rating: 1 },
+  { name: "Spitfire Coffee", city: "New Orleans", region: "LA, USA", rating: 1 },
+  { name: "HEY Coffee Co", city: "New Orleans", region: "LA, USA", rating: 0 },
+  { name: "Hivolt", city: "New Orleans", region: "LA, USA", rating: 0 },
+  { name: "Cherry Coffee", city: "New Orleans", region: "LA, USA", rating: 0 },
+  { name: "Pond Coffee", city: "New Orleans", region: "LA, USA", rating: 0 },
+  { name: "Congregation Coffee", city: "New Orleans", region: "LA, USA", rating: 1 },
+
+  // ── Tampa, FL, USA ──
+  { name: "Buddy Brew", city: "Tampa", region: "FL, USA", rating: 0 },
+
+  // ── Colorado Springs, CO, USA ──
+  { name: "Story", city: "Colorado Springs", region: "CO, USA", rating: 1 },
+  { name: "Frankly", city: "Colorado Springs", region: "CO, USA", rating: 0 },
+  { name: "Loyal Coffee", city: "Colorado Springs", region: "CO, USA", rating: 2 },
+
+  // ── Phoenix, AZ, USA ──
+  { name: "Bully Brew", city: "Phoenix", region: "AZ, USA", rating: 0 },
+  { name: "Press", city: "Phoenix", region: "AZ, USA", rating: 0 },
+];
+
+// ─── City Center Coordinates ───────────────────────────────────────
+const cityCoords = {
+  "London":            [51.5140, -0.1060],
+  "Edinburgh":         [55.9533, -3.1883],
+  "Bristol":           [51.4545, -2.5879],
+  "Bath":              [51.3811, -2.3590],
+  "Bury St Edmunds":   [52.2474,  0.7183],
+  "Clare, Suffolk":    [52.0774,  0.5847],
+  "Newmarket":         [52.2449,  0.4069],
+  "Cambridge":         [52.2053,  0.1218],
+  "Cardiff":           [51.4816, -3.1791],
+  "Holme-next-the-Sea":[52.9548,  0.8064],
+  "Dublin":            [53.3418, -6.2675],
+  "Paris":             [48.8620,  2.3480],
+  "New York":          [40.7280, -73.9900],
+  "Seattle":           [47.6110, -122.3350],
+  "Chattanooga":       [35.0456, -85.3097],
+  "Knoxville":         [35.9606, -83.9207],
+  "Düsseldorf":        [51.2277,  6.7735],
+  "Georgia":           [33.8490, -84.2000],
+  "Atlanta":           [33.7590, -84.3880],
+  "Nashville":         [36.1627, -86.7816],
+  "Franklin":          [35.9251, -86.8689],
+  "Winchester":        [35.1859, -86.1122],
+  "Cincinnati":        [39.1031, -84.5120],
+  "Asheville":         [35.5951, -82.5515],
+  "Austin":            [30.2672, -97.7431],
+  "Rome":              [41.8980,  12.4830],
+  "Florence":          [43.7710,  11.2530],
+  "Washington":        [38.9072, -77.0369],
+  "New Orleans":       [29.9580, -90.0700],
+  "Tampa":             [27.9506, -82.4572],
+  "Colorado Springs":  [38.8339, -104.8214],
+  "Phoenix":           [33.4484, -112.0740],
+};
+
+// ─── Helpers ───────────────────────────────────────────────────────
+const CACHE_KEY = "jackson-coffee-map-geocache";
+
+function loadCache() {
+  try { return JSON.parse(localStorage.getItem(CACHE_KEY)) || {}; }
+  catch { return {}; }
+}
+function saveCache(cache) {
+  localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
+}
+
+function getCacheKey(shop) {
+  return `${shop.name}|${shop.city}|${shop.region}`;
+}
+
+function getSpiralOffset(index, total) {
+  if (total <= 1) return [0, 0];
+  const angle = (index / total) * 2 * Math.PI + (index * 0.5);
+  const radius = 0.004 + (index * 0.0015);
+  return [Math.cos(angle) * radius, Math.sin(angle) * radius * 1.3];
+}
+
+function getRatingClass(rating) {
+  if (rating === 2) return "cantmiss";
+  if (rating === 1) return "recommended";
+  return "good";
+}
+
+function getRatingLabel(rating) {
+  if (rating === 2) return "Can't Miss";
+  if (rating === 1) return "Recommended";
+  return "Good";
+}
+
+function getRatingStars(rating) {
+  if (rating === 2) return "★★";
+  if (rating === 1) return "★";
+  return "";
+}
+
+function getMarkerSize(rating) {
+  if (rating === 2) return 10;
+  if (rating === 1) return 8;
+  return 7;
+}
+
+function getGoogleMapsLink(shop) {
+  const q = encodeURIComponent(`${shop.name} coffee ${shop.city} ${shop.region}`);
+  return `https://www.google.com/maps/search/?api=1&query=${q}`;
+}
+
+// ─── Initialize Map ────────────────────────────────────────────────
+const map = L.map('map', { zoomControl: true }).setView([38, -30], 3);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  maxZoom: 19
+}).addTo(map);
+
+const markers = L.markerClusterGroup({
+  maxClusterRadius: 40,
+  spiderfyOnMaxZoom: true,
+  showCoverageOnHover: false,
+  zoomToBoundsOnClick: true,
+  iconCreateFunction: function(cluster) {
+    const count = cluster.getChildCount();
+    let size = 'small';
+    if (count > 10) size = 'large';
+    else if (count > 5) size = 'medium';
+    return L.divIcon({
+      html: `<div><span>${count}</span></div>`,
+      className: `marker-cluster marker-cluster-${size}`,
+      iconSize: L.point(40, 40)
+    });
+  }
+});
+
+// ─── Create Markers ────────────────────────────────────────────────
+const cache = loadCache();
+const shopMarkers = [];
+
+// Group shops by city for offset calculation
+const cityGroups = {};
+shops.forEach(shop => {
+  const key = shop.city;
+  if (!cityGroups[key]) cityGroups[key] = [];
+  cityGroups[key].push(shop);
+});
+
+shops.forEach((shop, idx) => {
+  const ck = getCacheKey(shop);
+  const cityGroup = cityGroups[shop.city];
+  const indexInCity = cityGroup.indexOf(shop);
+  const totalInCity = cityGroup.length;
+  const offset = getSpiralOffset(indexInCity, totalInCity);
+  const cityCenter = cityCoords[shop.city] || [40, -74];
+
+  let lat, lng;
+  if (cache[ck]) {
+    lat = cache[ck].lat;
+    lng = cache[ck].lng;
+  } else {
+    lat = cityCenter[0] + offset[0];
+    lng = cityCenter[1] + offset[1];
+  }
+
+  const rClass = getRatingClass(shop.rating);
+  const size = getMarkerSize(shop.rating);
+
+  const icon = L.divIcon({
+    className: `custom-marker marker-${rClass}`,
+    iconSize: [size * 2, size * 2],
+    iconAnchor: [size, size],
+    popupAnchor: [0, -size]
+  });
+
+  const marker = L.marker([lat, lng], { icon });
+
+  const popupHtml = `
+    <div class="popup-content">
+      <h3>${shop.name}</h3>
+      <div class="popup-city">${shop.city}, ${shop.region}</div>
+      <div class="popup-rating">${getRatingStars(shop.rating)} ${getRatingLabel(shop.rating)}</div>
+      <div class="popup-links">
+        <a href="${getGoogleMapsLink(shop)}" target="_blank" rel="noopener">Open in Google Maps</a>
+      </div>
+    </div>
+  `;
+  marker.bindPopup(popupHtml);
+
+  markers.addLayer(marker);
+  shopMarkers.push({ shop, marker, index: idx });
+});
+
+map.addLayer(markers);
+
+// Fit bounds
+const allLatLngs = shopMarkers.map(sm => sm.marker.getLatLng());
+if (allLatLngs.length) {
+  map.fitBounds(L.latLngBounds(allLatLngs).pad(0.1));
+}
+
+// ─── Sidebar ───────────────────────────────────────────────────────
+const shopListEl = document.getElementById('shop-list');
+const shopCountEl = document.getElementById('shop-count');
+shopCountEl.textContent = `${shops.length} coffee shops across ${Object.keys(cityGroups).length} cities`;
+
+// Sort cities: group by region, then alphabetically
+const cityOrder = Object.keys(cityGroups).sort((a, b) => {
+  const ra = cityGroups[a][0].region;
+  const rb = cityGroups[b][0].region;
+  if (ra !== rb) return ra.localeCompare(rb);
+  return a.localeCompare(b);
+});
+
+cityOrder.forEach(cityName => {
+  const cityShops = cityGroups[cityName];
+  const region = cityShops[0].region;
+
+  const groupEl = document.createElement('div');
+  groupEl.className = 'city-group';
+  groupEl.dataset.city = cityName.toLowerCase();
+
+  const headerEl = document.createElement('div');
+  headerEl.className = 'city-header';
+  headerEl.innerHTML = `
+    <h3>${cityName}, ${region}</h3>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span class="count">${cityShops.length}</span>
+      <span class="arrow">&#9654;</span>
+    </div>
+  `;
+
+  const shopsEl = document.createElement('div');
+  shopsEl.className = 'city-shops';
+
+  // Sort shops within city: highest rating first
+  const sorted = [...cityShops].sort((a, b) => b.rating - a.rating);
+  sorted.forEach(shop => {
+    const sm = shopMarkers.find(s => s.shop === shop);
+    const item = document.createElement('div');
+    item.className = 'shop-item';
+    item.dataset.name = shop.name.toLowerCase();
+    item.innerHTML = `
+      <div class="shop-dot" style="background:${shop.rating === 2 ? '#FFD700' : shop.rating === 1 ? '#FF8C00' : '#4A9BD9'}"></div>
+      <span class="shop-name">${shop.name}</span>
+      <span class="stars">${getRatingStars(shop.rating)}</span>
+    `;
+    item.addEventListener('click', () => {
+      const ll = sm.marker.getLatLng();
+      map.setView(ll, 15);
+      // Uncluster and open popup
+      markers.zoomToShowLayer(sm.marker, () => {
+        sm.marker.openPopup();
+      });
+    });
+    shopsEl.appendChild(item);
+  });
+
+  headerEl.addEventListener('click', () => {
+    headerEl.classList.toggle('open');
+    shopsEl.classList.toggle('open');
+  });
+
+  groupEl.appendChild(headerEl);
+  groupEl.appendChild(shopsEl);
+  shopListEl.appendChild(groupEl);
+});
+
+// ─── Search ────────────────────────────────────────────────────────
+const searchBox = document.getElementById('search-box');
+searchBox.addEventListener('input', () => {
+  const q = searchBox.value.toLowerCase().trim();
+  const groups = shopListEl.querySelectorAll('.city-group');
+
+  groups.forEach(group => {
+    const items = group.querySelectorAll('.shop-item');
+    const cityMatch = group.dataset.city.includes(q);
+    let anyVisible = false;
+
+    items.forEach(item => {
+      const nameMatch = item.dataset.name.includes(q);
+      if (q === '' || cityMatch || nameMatch) {
+        item.classList.remove('hidden');
+        anyVisible = true;
+      } else {
+        item.classList.add('hidden');
+      }
+    });
+
+    if (q === '' || anyVisible) {
+      group.classList.remove('hidden');
+      if (q && anyVisible) {
+        group.querySelector('.city-header').classList.add('open');
+        group.querySelector('.city-shops').classList.add('open');
+      }
+    } else {
+      group.classList.add('hidden');
+    }
+  });
+
+  // Also highlight matching markers
+  if (q) {
+    const matching = shopMarkers.filter(sm =>
+      sm.shop.name.toLowerCase().includes(q) ||
+      sm.shop.city.toLowerCase().includes(q)
+    );
+    if (matching.length > 0 && matching.length <= 20) {
+      const bounds = L.latLngBounds(matching.map(sm => sm.marker.getLatLng()));
+      map.fitBounds(bounds.pad(0.2));
+    }
+  }
+});
+
+// ─── Geocoding ─────────────────────────────────────────────────────
+const btnGeocode = document.getElementById('btn-geocode');
+const btnClearCache = document.getElementById('btn-clear-cache');
+const btnFit = document.getElementById('btn-fit');
+const progressBar = document.getElementById('progress-bar');
+const progressFill = document.getElementById('progress-fill');
+const progressText = document.getElementById('progress-text');
+
+let geocoding = false;
+
+btnGeocode.addEventListener('click', async () => {
+  if (geocoding) return;
+  geocoding = true;
+  btnGeocode.disabled = true;
+  btnGeocode.textContent = 'Geocoding...';
+  progressBar.style.display = 'block';
+  progressText.style.display = 'block';
+
+  const cache = loadCache();
+  const toGeocode = shopMarkers.filter(sm => !cache[getCacheKey(sm.shop)]);
+  const total = toGeocode.length;
+
+  if (total === 0) {
+    progressText.textContent = 'All locations already refined!';
+    btnGeocode.textContent = 'Refine Locations';
+    btnGeocode.disabled = false;
+    geocoding = false;
+    setTimeout(() => {
+      progressBar.style.display = 'none';
+      progressText.style.display = 'none';
+    }, 3000);
+    return;
+  }
+
+  let done = 0;
+  for (const sm of toGeocode) {
+    const shop = sm.shop;
+    const query = `${shop.name} coffee, ${shop.city}, ${shop.region}`;
+    try {
+      const resp = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`,
+        { headers: { 'User-Agent': 'JacksonCoffeeMap/1.0' } }
+      );
+      const data = await resp.json();
+      if (data && data.length > 0) {
+        const lat = parseFloat(data[0].lat);
+        const lng = parseFloat(data[0].lon);
+        sm.marker.setLatLng([lat, lng]);
+        cache[getCacheKey(shop)] = { lat, lng };
+      }
+    } catch (e) {
+      console.warn(`Failed to geocode: ${query}`, e);
+    }
+
+    done++;
+    const pct = (done / total * 100).toFixed(0);
+    progressFill.style.width = pct + '%';
+    progressText.textContent = `${done}/${total} - ${shop.name}`;
+
+    // Respect Nominatim rate limit: 1 req/sec
+    await new Promise(r => setTimeout(r, 1100));
+  }
+
+  saveCache(cache);
+  markers.clearLayers();
+  shopMarkers.forEach(sm => markers.addLayer(sm.marker));
+
+  progressText.textContent = `Done! Refined ${done} locations.`;
+  btnGeocode.textContent = 'Refine Locations';
+  btnGeocode.disabled = false;
+  geocoding = false;
+
+  setTimeout(() => {
+    progressBar.style.display = 'none';
+    progressText.style.display = 'none';
+  }, 5000);
+});
+
+btnClearCache.addEventListener('click', () => {
+  localStorage.removeItem(CACHE_KEY);
+  location.reload();
+});
+
+btnFit.addEventListener('click', () => {
+  const all = shopMarkers.map(sm => sm.marker.getLatLng());
+  if (all.length) map.fitBounds(L.latLngBounds(all).pad(0.1));
+});
+</script>
+</body>
+</html>
